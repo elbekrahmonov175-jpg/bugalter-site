@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Обзор — Finance Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📊 Обзор</h1>
+    <span class="live-badge">🟢 Live</span>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card income">
+        <div class="stat-icon">📈</div>
+        <div class="stat-info">
+            <div class="stat-label">Все доходы</div>
+            <div class="stat-value" id="total-income">—</div>
+        </div>
+    </div>
+    <div class="stat-card expense">
+        <div class="stat-icon">📉</div>
+        <div class="stat-info">
+            <div class="stat-label">Все расходы</div>
+            <div class="stat-value" id="total-expense">—</div>
+        </div>
+    </div>
+    <div class="stat-card balance">
+        <div class="stat-icon">💵</div>
+        <div class="stat-info">
+            <div class="stat-label">Общий баланс</div>
+            <div class="stat-value" id="total-balance">—</div>
+        </div>
+    </div>
+    <div class="stat-card users">
+        <div class="stat-icon">👥</div>
+        <div class="stat-info">
+            <div class="stat-label">Пользователей</div>
+            <div class="stat-value" id="total-users">—</div>
+        </div>
+    </div>
+</div>
+
+<div class="grid-two">
+    <div class="card">
+        <div class="card-header">📜 Последние транзакции</div>
+        <div id="recent-list" class="tx-list">
+            <div class="loading">Загрузка...</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">🏷️ Топ категории расходов</div>
+        <div id="category-list" class="category-list">
+            <div class="loading">Загрузка...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function fmt(n) {
+    return Number(n).toLocaleString('ru-RU') + ' сум';
+}
+
+async function loadStats() {
+    const r = await fetch('/api/stats');
+    const d = await r.json();
+    document.getElementById('total-income').textContent = fmt(d.total_income);
+    document.getElementById('total-expense').textContent = fmt(d.total_expense);
+    document.getElementById('total-balance').textContent = fmt(d.balance);
+    document.getElementById('total-users').textContent = d.total_users;
+}
+
+async function loadRecent() {
+    const r = await fetch('/api/transactions?limit=10');
+    const txs = await r.json();
+    const el = document.getElementById('recent-list');
+    if (!txs.length) { el.innerHTML = '<div class="empty">Нет транзакций</div>'; return; }
+    el.innerHTML = txs.map(t => `
+        <div class="tx-item">
+            <div class="tx-left">
+                <span class="tx-icon">${t.type === 'income' ? '📈' : '📉'}</span>
+                <div>
+                    <div class="tx-cat">${t.category}</div>
+                    <div class="tx-meta">${t.name} · ${t.date}</div>
+                </div>
+            </div>
+            <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'}${Number(t.amount).toLocaleString('ru-RU')}</div>
+        </div>
+    `).join('');
+}
+
+async function loadCategories() {
+    const r = await fetch('/api/categories');
+    const cats = await r.json();
+    const el = document.getElementById('category-list');
+    const expenses = cats.filter(c => c.type === 'expense').slice(0, 7);
+    if (!expenses.length) { el.innerHTML = '<div class="empty">Нет данных</div>'; return; }
+    const max = Math.max(...expenses.map(c => c.total));
+    el.innerHTML = expenses.map(c => `
+        <div class="cat-item">
+            <div class="cat-name">${c.category}</div>
+            <div class="cat-bar-wrap">
+                <div class="cat-bar" style="width:${Math.round(c.total/max*100)}%"></div>
+            </div>
+            <div class="cat-total">${Number(c.total).toLocaleString('ru-RU')}</div>
+        </div>
+    `).join('');
+}
+
+function refresh() {
+    loadStats();
+    loadRecent();
+    loadCategories();
+}
+
+refresh();
+setInterval(refresh, 10000); // обновление каждые 10 секунд
+</script>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Пользователи — Finance Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>👥 Пользователи</h1>
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Имя</th>
+                <th>Username</th>
+                <th>Telegram ID</th>
+                <th>Транзакций</th>
+                <th>Дата регистрации</th>
+            </tr>
+        </thead>
+        <tbody id="users-tbody">
+            <tr><td colspan="6" class="loading">Загрузка...</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function load() {
+    const r = await fetch('/api/users');
+    const users = await r.json();
+    const tbody = document.getElementById('users-tbody');
+    if (!users.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Нет пользователей</td></tr>';
+        return;
+    }
+    tbody.innerHTML = users.map((u, i) => `
+        <tr>
+            <td>${i + 1}</td>
+            <td><strong>${u.name}</strong></td>
+            <td>${u.username ? '@' + u.username : '—'}</td>
+            <td><code>${u.user_id}</code></td>
+            <td><span class="badge neutral">${u.tx_count}</span></td>
+            <td>${u.created_at}</td>
+        </tr>
+    `).join('');
+}
+
+load();
+setInterval(load, 20000);
+</script>
+{% endblock %}

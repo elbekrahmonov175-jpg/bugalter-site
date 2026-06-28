@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Транзакции — Finance Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📜 Все транзакции</h1>
+    <div class="filter-row">
+        <select id="filter-type" onchange="load()">
+            <option value="">Все типы</option>
+            <option value="income">📈 Доход</option>
+            <option value="expense">📉 Расход</option>
+        </select>
+        <select id="filter-limit" onchange="load()">
+            <option value="50">50 записей</option>
+            <option value="100">100 записей</option>
+            <option value="200">200 записей</option>
+        </select>
+    </div>
+</div>
+
+<div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Пользователь</th>
+                <th>Тип</th>
+                <th>Категория</th>
+                <th>Сумма</th>
+                <th>Дата</th>
+            </tr>
+        </thead>
+        <tbody id="tx-tbody">
+            <tr><td colspan="6" class="loading">Загрузка...</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function load() {
+    const limit = document.getElementById('filter-limit').value;
+    const filterType = document.getElementById('filter-type').value;
+    const r = await fetch(`/api/transactions?limit=${limit}`);
+    let txs = await r.json();
+    if (filterType) txs = txs.filter(t => t.type === filterType);
+
+    const tbody = document.getElementById('tx-tbody');
+    if (!txs.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Нет транзакций</td></tr>';
+        return;
+    }
+    tbody.innerHTML = txs.map((t, i) => `
+        <tr>
+            <td>${i + 1}</td>
+            <td>
+                <div class="user-cell">
+                    <span class="user-name">${t.name}</span>
+                    ${t.username ? `<span class="user-tag">@${t.username}</span>` : ''}
+                </div>
+            </td>
+            <td><span class="badge ${t.type}">${t.type === 'income' ? '📈 Доход' : '📉 Расход'}</span></td>
+            <td>${t.category}</td>
+            <td class="amount ${t.type}">${t.type === 'income' ? '+' : '-'}${Number(t.amount).toLocaleString('ru-RU')} сум</td>
+            <td class="date">${t.date}</td>
+        </tr>
+    `).join('');
+}
+
+load();
+setInterval(load, 15000);
+</script>
+{% endblock %}
