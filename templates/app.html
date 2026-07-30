@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% block title %}Кабинет — Бухгалтерия{% endblock %}
+{% block head %}
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+{% endblock %}
+
+{% block content %}
+<div id="auth-gate" class="landing" style="display:none;">
+    <div class="ledger-mark">🔒</div>
+    <h1>Открой через бота</h1>
+    <p class="ledger-rule"></p>
+    <p class="landing-text">Эта страница — личный кабинет и работает только
+    внутри Telegram. Открой бота и нажми «🧮 Кабинет».</p>
+</div>
+
+<div id="cabinet" class="cabinet" style="display:none;">
+
+    <header class="ledger-header">
+        <div class="ledger-header-left">
+            <span class="ledger-mark-sm">🧮</span>
+            <div>
+                <div class="ledger-title">Бухгалтерия</div>
+                <div class="ledger-sub" id="user-name">—</div>
+            </div>
+        </div>
+        <div class="ledger-date" id="today-date"></div>
+    </header>
+
+    <section class="sheet balance-sheet">
+        <div class="sheet-label">Итог</div>
+        <div class="balance-total" id="balance-total">—</div>
+        <div class="ledger-row">
+            <span class="ledger-row-label">доходы всего</span>
+            <span class="ledger-leader"></span>
+            <span class="ledger-row-value credit" id="total-income">—</span>
+        </div>
+        <div class="ledger-row">
+            <span class="ledger-row-label">расходы всего</span>
+            <span class="ledger-leader"></span>
+            <span class="ledger-row-value debit" id="total-expense">—</span>
+        </div>
+    </section>
+
+    <section class="sheet" id="tip-box">
+        <div class="sheet-label">Заметка на полях</div>
+        <div class="tip-text" id="tip-text">—</div>
+    </section>
+
+    <section class="sheet">
+        <div class="sheet-label">За неделю</div>
+        <div class="week-row">
+            <span class="ledger-row-value" id="week-expense">—</span>
+            <span class="week-of"> / <span id="week-threshold">—</span> сум порог</span>
+        </div>
+        <div class="progress-track">
+            <div class="progress-fill" id="week-progress-fill"></div>
+        </div>
+        <div class="week-note" id="week-note"></div>
+    </section>
+
+    <section class="sheet actions">
+        <div class="sheet-label">Записать операцию</div>
+        <div class="calc-keys">
+            <button class="calc-key credit" id="btn-open-income">➕ Доход</button>
+            <button class="calc-key debit" id="btn-open-expense">➖ Расход</button>
+        </div>
+        <button class="calc-key wide" id="btn-open-convert">🔄 Обмен нал→карта</button>
+    </section>
+
+    <section class="sheet">
+        <div class="sheet-label">Категории</div>
+        <div id="category-list" class="category-list">
+            <div class="empty">Загрузка…</div>
+        </div>
+    </section>
+
+    <section class="sheet">
+        <div class="sheet-label">Последние записи</div>
+        <div id="tx-list" class="tx-list">
+            <div class="empty">Загрузка…</div>
+        </div>
+    </section>
+
+    <section class="sheet">
+        <div class="sheet-label">Обмены нал→карта</div>
+        <div id="conv-list" class="tx-list">
+            <div class="empty">Пока нет обменов</div>
+        </div>
+    </section>
+
+</div>
+
+<!-- ── Панель добавления дохода/расхода ─────────────────────────────── -->
+<div class="overlay" id="tx-overlay">
+    <div class="panel">
+        <div class="panel-header">
+            <span id="tx-panel-title">Добавить</span>
+            <button class="panel-close" data-close="tx-overlay">✕</button>
+        </div>
+        <div class="chip-row" id="tx-categories"></div>
+        <input class="amount-input" id="tx-amount" type="number" inputmode="numeric" placeholder="Сумма в сумах">
+        <button class="calc-key wide submit" id="tx-submit">Записать</button>
+        <div class="panel-error" id="tx-error"></div>
+    </div>
+</div>
+
+<!-- ── Панель обмена нал→карта ──────────────────────────────────────── -->
+<div class="overlay" id="conv-overlay">
+    <div class="panel">
+        <div class="panel-header">
+            <span>Обмен нал→карта</span>
+            <button class="panel-close" data-close="conv-overlay">✕</button>
+        </div>
+        <label class="field-label">Сколько наличных кидаешь</label>
+        <input class="amount-input" id="conv-amount" type="number" inputmode="numeric" placeholder="Сумма в сумах">
+        <label class="field-label">Комиссия, %</label>
+        <input class="amount-input" id="conv-percent" type="number" inputmode="decimal" placeholder="Например 2 или 2.5">
+        <div class="receipt" id="conv-receipt" style="display:none;">
+            <div class="ledger-row"><span class="ledger-row-label">наличными</span><span class="ledger-leader"></span><span class="ledger-row-value" id="conv-cash">—</span></div>
+            <div class="ledger-row"><span class="ledger-row-label">комиссия</span><span class="ledger-leader"></span><span class="ledger-row-value debit" id="conv-fee">—</span></div>
+            <div class="ledger-row total"><span class="ledger-row-label">на карту зачислится</span><span class="ledger-leader"></span><span class="ledger-row-value credit" id="conv-net">—</span></div>
+        </div>
+        <button class="calc-key wide submit" id="conv-submit">Посчитать и записать</button>
+        <div class="panel-error" id="conv-error"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const EXPENSE_CATEGORIES = {{ expense_categories | tojson }};
+const INCOME_CATEGORIES = {{ income_categories | tojson }};
+const WEEKLY_THRESHOLD = {{ weekly_threshold }};
+
+const TIPS = [
+    "Записывай трату сразу, пока не забыл — момент операции важнее памяти.",
+    "Комиссия за обмен наличных — тоже расход. Считай её, а не просто списывай со счёта.",
+    "Раз в неделю сверяй остаток на карте с тем, что показывает кабинет — так находятся ошибки.",
+    "Категория «Другое» — сигнал, что стоит завести отдельную статью расходов.",
+    "Итог за месяц считается не по ощущениям, а по сумме записей. Не записал — не посчиталось."
+];
+
+function fmt(n) { return Number(n || 0).toLocaleString('ru-RU'); }
+
+function showOverlay(id) { document.getElementById(id).classList.add('open'); }
+function hideOverlay(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('[data-close]').forEach(btn => {
+    btn.addEventListener('click', () => hideOverlay(btn.dataset.close));
+});
+
+let txType = null;
+let txCategory = null;
+
+function openTxPanel(type) {
+    txType = type;
+    txCategory = null;
+    document.getElementById('tx-error').textContent = '';
+    document.getElementById('tx-amount').value = '';
+    document.getElementById('tx-panel-title').textContent = type === 'income' ? '➕ Доход' : '➖ Расход';
+    const cats = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+    const wrap = document.getElementById('tx-categories');
+    wrap.innerHTML = cats.map(c => `<button class="chip" data-cat="${c}">${c}</button>`).join('');
+    wrap.querySelectorAll('.chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            wrap.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+            chip.classList.add('selected');
+            txCategory = chip.dataset.cat;
+        });
+    });
+    showOverlay('tx-overlay');
+}
+
+document.getElementById('btn-open-income').addEventListener('click', () => openTxPanel('income'));
+document.getElementById('btn-open-expense').addEventListener('click', () => openTxPanel('expense'));
+
+document.getElementById('tx-submit').addEventListener('click', async () => {
+    const errEl = document.getElementById('tx-error');
+    const amount = parseInt(document.getElementById('tx-amount').value, 10);
+    if (!txCategory) { errEl.textContent = 'Выбери категорию.'; return; }
+    if (!amount || amount <= 0) { errEl.textContent = 'Введи корректную сумму.'; return; }
+    errEl.textContent = '';
+    try {
+        const r = await fetch('/api/me/transactions', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({type: txType, category: txCategory, amount})
+        });
+        const d = await r.json();
+        if (!r.ok) { errEl.textContent = 'Ошибка: ' + (d.error || 'не удалось сохранить'); return; }
+        hideOverlay('tx-overlay');
+        refresh();
+    } catch (e) { errEl.textContent = 'Ошибка сети.'; }
+});
+
+document.getElementById('btn-open-convert').addEventListener('click', () => {
+    document.getElementById('conv-error').textContent = '';
+    document.getElementById('conv-amount').value = '';
+    document.getElementById('conv-percent').value = '';
+    document.getElementById('conv-receipt').style.display = 'none';
+    showOverlay('conv-overlay');
+});
+
+document.getElementById('conv-submit').addEventListener('click', async () => {
+    const errEl = document.getElementById('conv-error');
+    const cash_amount = parseInt(document.getElementById('conv-amount').value, 10);
+    const fee_percent = parseFloat(document.getElementById('conv-percent').value);
+    if (!cash_amount || cash_amount <= 0) { errEl.textContent = 'Введи сумму наличных.'; return; }
+    if (isNaN(fee_percent) || fee_percent < 0 || fee_percent > 100) { errEl.textContent = 'Введи процент от 0 до 100.'; return; }
+    errEl.textContent = '';
+    try {
+        const r = await fetch('/api/me/convert', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({cash_amount, fee_percent})
+        });
+        const d = await r.json();
+        if (!r.ok) { errEl.textContent = 'Ошибка: ' + (d.error || 'не удалось сохранить'); return; }
+        document.getElementById('conv-cash').textContent = fmt(d.cash_amount);
+        document.getElementById('conv-fee').textContent = fmt(d.fee_amount);
+        document.getElementById('conv-net').textContent = fmt(d.net_amount);
+        document.getElementById('conv-receipt').style.display = 'block';
+        refresh();
+    } catch (e) { errEl.textContent = 'Ошибка сети.'; }
+});
+
+async function loadStats() {
+    const r = await fetch('/api/me/stats');
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('balance-total').textContent = fmt(d.balance) + ' сум';
+    document.getElementById('total-income').textContent = '+' + fmt(d.income);
+    document.getElementById('total-expense').textContent = '-' + fmt(d.expense);
+    document.getElementById('week-expense').textContent = fmt(d.week_expense);
+    document.getElementById('week-threshold').textContent = fmt(d.weekly_threshold);
+    const pct = Math.min(100, Math.round((d.week_expense / d.weekly_threshold) * 100));
+    const fill = document.getElementById('week-progress-fill');
+    fill.style.width = pct + '%';
+    fill.classList.toggle('over', d.week_expense >= d.weekly_threshold);
+    document.getElementById('week-note').textContent =
+        d.week_expense >= d.weekly_threshold
+            ? '⚠️ Порог за неделю превышен.'
+            : (pct + '% от недельного порога.');
+}
+
+async function loadTransactions() {
+    const r = await fetch('/api/me/transactions?limit=15');
+    if (!r.ok) return;
+    const txs = await r.json();
+    const el = document.getElementById('tx-list');
+    if (!txs.length) { el.innerHTML = '<div class="empty">Записей ещё нет</div>'; return; }
+    el.innerHTML = txs.map(t => `
+        <div class="tx-item">
+            <div>
+                <div class="tx-cat">${t.category}</div>
+                <div class="tx-meta">${t.date}</div>
+            </div>
+            <div class="tx-amount ${t.type === 'income' ? 'credit' : 'debit'}">${t.type === 'income' ? '+' : '-'}${fmt(t.amount)}</div>
+        </div>
+    `).join('');
+}
+
+async function loadCategories() {
+    const r = await fetch('/api/me/categories');
+    if (!r.ok) return;
+    const cats = (await r.json()).filter(c => c.type === 'expense').slice(0, 8);
+    const el = document.getElementById('category-list');
+    if (!cats.length) { el.innerHTML = '<div class="empty">Пока нет расходов</div>'; return; }
+    const max = Math.max(...cats.map(c => c.total));
+    el.innerHTML = cats.map(c => `
+        <div class="cat-item">
+            <div class="cat-name">${c.category}</div>
+            <div class="cat-bar-wrap"><div class="cat-bar" style="width:${Math.round(c.total / max * 100)}%"></div></div>
+            <div class="cat-total">${fmt(c.total)}</div>
+        </div>
+    `).join('');
+}
+
+async function loadConversions() {
+    const r = await fetch('/api/me/conversions');
+    if (!r.ok) return;
+    const rows = await r.json();
+    const el = document.getElementById('conv-list');
+    if (!rows.length) { el.innerHTML = '<div class="empty">Пока нет обменов</div>'; return; }
+    el.innerHTML = rows.map(c => `
+        <div class="tx-item">
+            <div>
+                <div class="tx-cat">${fmt(c.cash_amount)} → ${fmt(c.net_amount)} сум (${c.fee_percent}%)</div>
+                <div class="tx-meta">${c.date}</div>
+            </div>
+            <div class="tx-amount debit">-${fmt(c.fee_amount)}</div>
+        </div>
+    `).join('');
+}
+
+function refresh() {
+    loadStats();
+    loadTransactions();
+    loadCategories();
+    loadConversions();
+}
+
+async function init() {
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+    const initData = tg ? tg.initData : '';
+
+    if (!initData) {
+        document.getElementById('auth-gate').style.display = 'block';
+        return;
+    }
+
+    const r = await fetch('/api/auth', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({initData})
+    });
+    if (!r.ok) {
+        document.getElementById('auth-gate').style.display = 'block';
+        return;
+    }
+    const d = await r.json();
+    document.getElementById('cabinet').style.display = 'block';
+    document.getElementById('user-name').textContent = d.first_name || 'Кабинет';
+    document.getElementById('today-date').textContent = new Date().toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric'});
+    document.getElementById('tip-text').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
+
+    refresh();
+    setInterval(refresh, 15000);
+}
+
+init();
+</script>
+{% endblock %}
